@@ -22,6 +22,8 @@ import android.os.Bundle;
 import android.text.Editable;
 import android.view.View;
 import android.widget.EditText;
+
+import androidx.annotation.NonNull;
 import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.FragmentActivity;
 import com.google.common.base.Preconditions;
@@ -45,12 +47,14 @@ public class HostDialogFragment extends DialogFragment {
     this.okListener = okListener;
   }
 
+  @NonNull
   @Override
   public Dialog onCreateDialog(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
+    assert getArguments() != null;
     String defaultNickname = getArguments().getString("nickname");
     FragmentActivity activity =
-        Preconditions.checkNotNull(getActivity(), "The activity cannot be null.");
+        Preconditions.checkNotNull(requireActivity(), "The activity cannot be null.");
     AlertDialog.Builder builder = new AlertDialog.Builder(activity);
 
     // Passing null as the root is fine, because the view is for a dialog.

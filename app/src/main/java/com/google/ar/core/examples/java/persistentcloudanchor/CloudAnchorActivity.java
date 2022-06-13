@@ -31,6 +31,7 @@ import android.view.WindowManager;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.GuardedBy;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.DialogFragment;
 import com.google.ar.core.Anchor;
@@ -153,7 +154,7 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
   private Anchor anchor;
 
   @GuardedBy("anchorLock")
-  private List<Anchor> resolvedAnchors = new ArrayList<>();
+  private final List<Anchor> resolvedAnchors = new ArrayList<>();
 
   @GuardedBy("anchorLock")
   private List<String> unresolvedAnchorIds = new ArrayList<>();
@@ -288,7 +289,7 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
         }
         // ARCore requires camera permissions to operate. If we did not yet obtain runtime
         // permission on Android M and above, now is a good time to ask the user for it.
-        if (!CameraPermissionHelper.hasCameraPermission(this)) {
+        if (CameraPermissionHelper.noCameraPermission(this)) {
           CameraPermissionHelper.requestCameraPermission(this);
           return;
         }
@@ -346,10 +347,10 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
   }
 
   @Override
-  public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+  public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] results) {
     super.onRequestPermissionsResult(requestCode, permissions, results);
 
-    if (!CameraPermissionHelper.hasCameraPermission(this)) {
+    if (CameraPermissionHelper.noCameraPermission(this)) {
       Toast.makeText(this, "Camera permission is needed to run this application", Toast.LENGTH_LONG)
           .show();
       if (!CameraPermissionHelper.shouldShowRequestPermissionRationale(this)) {
@@ -645,53 +646,6 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
       throw new AssertionError("Could not save the user preference to SharedPreferences!");
     }
     createSession();
-    ResolveListener resolveListener = new ResolveListener();
-    synchronized (anchorLock) {
-      unresolvedAnchorIds = getIntent().getStringArrayListExtra(EXTRA_ANCHORS_TO_RESOLVE);
-      debugText.setText(getString(R.string.debug_resolving_processing, unresolvedAnchorIds.size()));
-      // Encourage the user to look at a previously mapped area.
-      userMessageText.setText(R.string.resolving_processing);
-      Log.i(
-          TAG,
-          String.format(
-              "Attempting to resolve %d anchor(s): %s",
-              unresolvedAnchorIds.size(), unresolvedAnchorIds));
-      for (String cloudAnchorId : unresolvedAnchorIds) {
-        cloudAnchorManager.resolveCloudAnchor(cloudAnchorId, resolveListener);
-      }
-    }
-  }
-
-  /* Listens for a resolved anchor. */
-  private final class ResolveListener implements CloudAnchorManager.CloudAnchorListener {
-
-    @Override
-    public void onComplete(Anchor anchor) {
-      runOnUiThread(
-          () -> {
-            CloudAnchorState state = anchor.getCloudAnchorState();
-            if (state.isError()) {
-              Log.e(TAG, "Error hosting a cloud anchor, state " + state);
-              userMessageText.setText(getString(R.string.resolving_error, state));
-              return;
-            }
-            setAnchorAsResolved(anchor);
-            userMessageText.setText(getString(R.string.resolving_success));
-            synchronized (anchorLock) {
-              if (unresolvedAnchorIds.isEmpty()) {
-                debugText.setText(getString(R.string.debug_resolving_success));
-              } else {
-                Log.i(
-                    TAG,
-                    String.format(
-                        "Attempting to resolve %d anchor(s): %s",
-                        unresolvedAnchorIds.size(), unresolvedAnchorIds));
-                debugText.setText(
-                    getString(R.string.debug_resolving_processing, unresolvedAnchorIds.size()));
-              }
-            }
-          });
-    }
   }
 
   /* Listens for a hosted anchor. */

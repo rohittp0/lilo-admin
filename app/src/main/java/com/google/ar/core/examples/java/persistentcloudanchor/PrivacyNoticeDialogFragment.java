@@ -18,11 +18,13 @@ package com.google.ar.core.examples.java.persistentcloudanchor;
 
 import android.app.AlertDialog;
 import android.app.Dialog;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+
+import androidx.annotation.NonNull;
 import androidx.fragment.app.DialogFragment;
+
 
 /** A DialogFragment for the Privacy Notice Dialog Box. */
 public class PrivacyNoticeDialogFragment extends DialogFragment {
@@ -48,6 +50,7 @@ public class PrivacyNoticeDialogFragment extends DialogFragment {
     hostResolveListener = null;
   }
 
+  @NonNull
   @Override
   public Dialog onCreateDialog(Bundle savedInstanceState) {
     AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
@@ -56,24 +59,15 @@ public class PrivacyNoticeDialogFragment extends DialogFragment {
         .setMessage(R.string.share_experience_message)
         .setPositiveButton(
             R.string.agree_to_share,
-            new DialogInterface.OnClickListener() {
-              @Override
-              public void onClick(DialogInterface dialog, int id) {
-                // Send the positive button event back to the host activity
-                hostResolveListener.onPrivacyNoticeReceived();
-              }
-            })
+                (dialog, id) -> {
+                  // Send the positive button event back to the host activity
+                  hostResolveListener.onPrivacyNoticeReceived();
+                })
         .setNegativeButton(
             R.string.learn_more,
-            new DialogInterface.OnClickListener() {
-              @Override
-              public void onClick(DialogInterface dialog, int id) {
-                Intent browserIntent =
-                    new Intent(
-                        Intent.ACTION_VIEW, Uri.parse(getString(R.string.learn_more_url)));
-                getActivity().startActivity(browserIntent);
-              }
-            });
+                (dialog, id) -> requireActivity().startActivity(
+                        new Intent(Intent.ACTION_VIEW, Uri.parse(getString(R.string.learn_more_url))
+                        )));
     return builder.create();
   }
 }

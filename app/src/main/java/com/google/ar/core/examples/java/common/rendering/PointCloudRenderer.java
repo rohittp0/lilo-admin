@@ -17,7 +17,6 @@ package com.google.ar.core.examples.java.common.rendering;
 
 import android.content.Context;
 import android.opengl.GLES20;
-import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
 import com.google.ar.core.PointCloud;
 import java.io.IOException;
@@ -54,7 +53,7 @@ public class PointCloudRenderer {
 
   /**
    * Allocates and initializes OpenGL resources needed by the plane renderer. Must be called on the
-   * OpenGL thread, typically in {@link GLSurfaceView.Renderer#onSurfaceCreated(GL10, EGLConfig)}.
+   * OpenGL thread, typically in .
    *
    * @param context Needed to access shader source.
    */

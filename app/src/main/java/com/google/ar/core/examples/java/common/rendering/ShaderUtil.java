@@ -42,9 +42,9 @@ public final class ShaderUtil {
     String code = readShaderFileFromAssets(context, filename);
 
     // Prepend any #define values specified during this run.
-    String defines = "";
+    StringBuilder defines = new StringBuilder();
     for (Map.Entry<String, Integer> entry : defineValuesMap.entrySet()) {
-      defines += "#define " + entry.getKey() + " " + entry.getValue() + "\n";
+      defines.append("#define ").append(entry.getKey()).append(" ").append(entry.getValue()).append("\n");
     }
     code = defines + code;
 

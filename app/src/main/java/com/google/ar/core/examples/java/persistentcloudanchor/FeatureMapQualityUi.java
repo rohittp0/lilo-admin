@@ -16,6 +16,9 @@
 package com.google.ar.core.examples.java.persistentcloudanchor;
 
 import android.opengl.Matrix;
+
+import androidx.annotation.NonNull;
+
 import com.google.ar.core.Pose;
 import com.google.ar.core.Session.FeatureMapQuality;
 import com.google.ar.core.examples.java.common.rendering.ObjectRenderer;
@@ -55,7 +58,7 @@ class FeatureMapQualityUi {
   final double arcEndRad;
   final int numBars;
   final float radius;
-  ObjectRenderer objectRenderer;
+  final ObjectRenderer objectRenderer;
   final QualityBar[] bars;
   Pose featureMapQualityUIPose;
 
@@ -77,12 +80,12 @@ class FeatureMapQualityUi {
       quality = Quality.UNKNOWN;
     }
 
+    @NonNull
     private Pose computeLocalPose(double rad) {
       // Rotate around y axis
       float[] rotation = {0, (float) Math.sin(rad / 2.0), 0, (float) Math.cos(rad / 2.0), 0};
       float[] translation = {radius, 0, 0};
-      Pose pose = Pose.makeRotation(rotation).compose(Pose.makeTranslation(translation));
-      return pose;
+      return Pose.makeRotation(rotation).compose(Pose.makeTranslation(translation));
     }
 
     public void updateQuality(FeatureMapQuality quality) {

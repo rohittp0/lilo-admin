@@ -34,8 +34,6 @@ public class MainLobbyActivity extends AppCompatActivity {
     displayRotationHelper = new DisplayRotationHelper(this);
     MaterialButton hostButton = findViewById(R.id.host_button);
     hostButton.setOnClickListener((view) -> onHostButtonPress());
-    MaterialButton resolveButton = findViewById(R.id.begin_resolve_button);
-    resolveButton.setOnClickListener((view) -> onResolveButtonPress());
   }
 
   @Override
@@ -52,12 +50,6 @@ public class MainLobbyActivity extends AppCompatActivity {
 
   private void onHostButtonPress() {
     Intent intent = CloudAnchorActivity.newHostingIntent(this);
-    startActivity(intent);
-  }
-
-  /** Callback function invoked when the Resolve Button is pressed. */
-  private void onResolveButtonPress() {
-    Intent intent = ResolveAnchorsLobbyActivity.newIntent(this);
     startActivity(intent);
   }
 }

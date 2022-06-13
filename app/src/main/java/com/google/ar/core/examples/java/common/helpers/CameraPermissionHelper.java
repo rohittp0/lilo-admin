@@ -30,9 +30,8 @@ public final class CameraPermissionHelper {
   private static final String CAMERA_PERMISSION = Manifest.permission.CAMERA;
 
   /** Check to see we have the necessary permissions for this app. */
-  public static boolean hasCameraPermission(Activity activity) {
-    return ContextCompat.checkSelfPermission(activity, CAMERA_PERMISSION)
-        == PackageManager.PERMISSION_GRANTED;
+  public static boolean noCameraPermission(Activity activity) {
+    return ContextCompat.checkSelfPermission(activity, CAMERA_PERMISSION) != PackageManager.PERMISSION_GRANTED;
   }
 
   /** Check to see we have the necessary permissions for this app, and ask for them if we don't. */

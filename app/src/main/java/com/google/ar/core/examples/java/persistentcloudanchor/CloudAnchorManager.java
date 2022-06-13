@@ -37,7 +37,7 @@ class CloudAnchorManager {
     void onComplete(Anchor anchor);
   }
 
-  private Session session;
+  private final Session session;
   private final Map<Anchor, CloudAnchorListener> pendingAnchors = new HashMap<>();
 
   CloudAnchorManager(Session session) {

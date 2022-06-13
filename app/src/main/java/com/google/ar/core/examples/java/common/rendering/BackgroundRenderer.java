@@ -165,7 +165,7 @@ public class BackgroundRenderer {
    * accurately follow static physical objects. This must be called <b>before</b> drawing virtual
    * content.
    *
-   * @param frame The current {@code Frame} as returned by {@link Session#update()}.
+   * @param frame The current {@code Frame} as returned by .
    * @param debugShowDepthMap Toggles whether to show the live camera feed or latest depth image.
    */
   public void draw(@NonNull Frame frame, boolean debugShowDepthMap) {

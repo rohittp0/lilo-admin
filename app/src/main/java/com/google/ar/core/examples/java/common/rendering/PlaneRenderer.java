@@ -19,7 +19,6 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.opengl.GLES20;
-import android.opengl.GLSurfaceView;
 import android.opengl.GLUtils;
 import android.opengl.Matrix;
 import com.google.ar.core.Camera;
@@ -109,7 +108,7 @@ public class PlaneRenderer {
 
   /**
    * Allocates and initializes OpenGL resources needed by the plane renderer. Must be called on the
-   * OpenGL thread, typically in {@link GLSurfaceView.Renderer#onSurfaceCreated(GL10, EGLConfig)}.
+   * OpenGL thread, typically in .
    *
    * @param context Needed to access shader source and texture PNG.
    * @param gridDistanceTextureName Name of the PNG file containing the grid texture.
@@ -306,14 +305,7 @@ public class PlaneRenderer {
       }
       sortedPlanes.add(new SortablePlane(distance, plane));
     }
-    Collections.sort(
-        sortedPlanes,
-        new Comparator<SortablePlane>() {
-          @Override
-          public int compare(SortablePlane a, SortablePlane b) {
-            return Float.compare(b.distance, a.distance);
-          }
-        });
+    sortedPlanes.sort((a, b) -> Float.compare(b.distance, a.distance));
 
     float[] cameraView = new float[16];
     cameraPose.inverse().toMatrix(cameraView, 0);
@@ -365,10 +357,10 @@ public class PlaneRenderer {
       float angleRadians = planeIndex * 0.144f;
       float uScale = DOTS_PER_METER;
       float vScale = DOTS_PER_METER * EQUILATERAL_TRIANGLE_SCALE;
-      planeAngleUvMatrix[0] = +(float) Math.cos(angleRadians) * uScale;
+      planeAngleUvMatrix[0] = (float) Math.cos(angleRadians) * uScale;
       planeAngleUvMatrix[1] = -(float) Math.sin(angleRadians) * vScale;
-      planeAngleUvMatrix[2] = +(float) Math.sin(angleRadians) * uScale;
-      planeAngleUvMatrix[3] = +(float) Math.cos(angleRadians) * vScale;
+      planeAngleUvMatrix[2] = (float) Math.sin(angleRadians) * uScale;
+      planeAngleUvMatrix[3] = (float) Math.cos(angleRadians) * vScale;
       GLES20.glUniformMatrix2fv(planeUvMatrixUniform, 1, false, planeAngleUvMatrix, 0);
 
       draw(cameraView, cameraPerspective, normal);
