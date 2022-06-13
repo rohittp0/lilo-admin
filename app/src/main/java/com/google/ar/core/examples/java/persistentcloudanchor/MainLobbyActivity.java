@@ -19,7 +19,7 @@ public class MainLobbyActivity extends AppCompatActivity {
     setContentView(R.layout.main_lobby);
     displayRotationHelper = new DisplayRotationHelper(this);
     MaterialButton hostButton = findViewById(R.id.host_button);
-    hostButton.setOnClickListener((view) -> onHostButtonPress());
+    hostButton.setOnClickListener((view) -> startActivity(new Intent(this, CloudAnchorActivity.class)));
   }
 
   @Override
@@ -32,10 +32,5 @@ public class MainLobbyActivity extends AppCompatActivity {
   public void onPause() {
     super.onPause();
     displayRotationHelper.onPause();
-  }
-
-  private void onHostButtonPress() {
-    Intent intent = CloudAnchorActivity.newHostingIntent(this);
-    startActivity(intent);
   }
 }

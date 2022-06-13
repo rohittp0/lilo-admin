@@ -27,7 +27,7 @@
   <string name="debug_hosting_place_anchor">Tap a vertical or horizontal plane…</string>
   <string name="debug_hosting_save">Average Mapping Quality: %1$s</string>
   <string name="debug_hosting_processing">Required quality reached, saving point…</string>
-  <string name="debug_hosting_success">Anchor %1$s created.</string>
+  <string name="debug_hosting_success">Point %1$s created.</string>
   <string name="debug_hosting_error">There was an error during Hosting: %1$s</string>
   <string name="nickname_title_text">Enter name</string>
   <string name="nickname_instructions_text">Enter a name for the point you scanned</string>
@@ -46,4 +46,9 @@
   <string name="learn_more">Learn more</string>
   <!-- Privacy learn more URL. [CHAR_LIMIT=NONE] -->
   <string name="learn_more_url">https://developers.google.com/ar/data-privacy</string>
+
+  <!-- Strings used in geospatial flow-->
+  <string translatable="false" name="geospatial_pose">LAT/LNG: %.6f˚, %.6f˚\n\t\t\tACCURACY: %.2fm\nALTITUDE: %.2fm\n\t\t\tACCURACY: %.2fm\nHEADING: %.1f˚\n\t\t\tACCURACY: %.1f˚</string>
+  <string name="geospatial_pose_not_tracking">Geospatial calibrating…</string>
+  <string name="localizing_timeout">Localizing timeout reached</string>
 </resources>

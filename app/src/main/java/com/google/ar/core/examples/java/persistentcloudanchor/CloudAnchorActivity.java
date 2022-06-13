@@ -1,7 +1,6 @@
 package com.google.ar.core.examples.java.persistentcloudanchor;
 
 import android.content.Context;
-import android.content.Intent;
 import android.content.SharedPreferences;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
@@ -26,7 +25,9 @@ import com.google.ar.core.ArCoreApk;
 import com.google.ar.core.Camera;
 import com.google.ar.core.Config;
 import com.google.ar.core.Config.CloudAnchorMode;
+import com.google.ar.core.Earth;
 import com.google.ar.core.Frame;
+import com.google.ar.core.GeospatialPose;
 import com.google.ar.core.HitResult;
 import com.google.ar.core.Plane;
 import com.google.ar.core.PointCloud;
@@ -38,6 +39,7 @@ import com.google.ar.core.TrackingState;
 import com.google.ar.core.examples.java.common.helpers.CameraPermissionHelper;
 import com.google.ar.core.examples.java.common.helpers.DisplayRotationHelper;
 import com.google.ar.core.examples.java.common.helpers.FullScreenHelper;
+import com.google.ar.core.examples.java.common.helpers.LocationPermissionHelper;
 import com.google.ar.core.examples.java.common.helpers.TrackingStateHelper;
 import com.google.ar.core.examples.java.common.rendering.BackgroundRenderer;
 import com.google.ar.core.examples.java.common.rendering.ObjectRenderer;
@@ -49,11 +51,22 @@ import com.google.ar.core.exceptions.UnavailableApkTooOldException;
 import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException;
 import com.google.ar.core.exceptions.UnavailableSdkTooOldException;
 import com.google.common.base.Preconditions;
+import com.google.firebase.firestore.FirebaseFirestore;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
+
+enum State {
+    UNINITIALIZED,
+    EARTH_STATE_ERROR,
+    PRETRACKING,
+    LOCALIZING,
+    LOCALIZED
+}
 
 /**
  * Main Activity for the Persistent Cloud Anchor Sample.
@@ -64,7 +77,6 @@ import javax.microedition.khronos.opengles.GL10;
  */
 public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceView.Renderer {
     private static final String TAG = CloudAnchorActivity.class.getSimpleName();
-    private static final String EXTRA_HOSTING_MODE = "persistentcloudanchor.hosting_mode";
     private static final String QUALITY_INSUFFICIENT_STRING = "INSUFFICIENT";
     private static final String ALLOW_SHARE_IMAGES_KEY = "ALLOW_SHARE_IMAGES";
     protected static final String PREFERENCE_FILE_KEY = "CLOUD_ANCHOR_PREFERENCES";
@@ -72,16 +84,12 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
     protected static final double MIN_DISTANCE = 0.2f;
     protected static final double MAX_DISTANCE = 10.0f;
 
-    static Intent newHostingIntent(Context packageContext) {
-        Intent intent = new Intent(packageContext, CloudAnchorActivity.class);
-        intent.putExtra(EXTRA_HOSTING_MODE, true);
-        return intent;
-    }
+    private static final float LOCALIZING_HORIZONTAL_ACCURACY_THRESHOLD_METERS = 10;
+    private static final float LOCALIZING_HEADING_ACCURACY_THRESHOLD_DEGREES = 50;
 
-    private enum HostResolveMode {
-        HOSTING,
-        RESOLVING,
-    }
+    private static final double LOCALIZED_HORIZONTAL_ACCURACY_HYSTERESIS_METERS = 10;
+    private static final double LOCALIZED_HEADING_ACCURACY_HYSTERESIS_DEGREES = 10;
+
 
     // Rendering. The Renderers are created here, and initialized when the GL surface is created.
     private GLSurfaceView surfaceView;
@@ -90,6 +98,8 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
     private final ObjectRenderer featureMapQualityBarObject = new ObjectRenderer();
     private final PlaneRenderer planeRenderer = new PlaneRenderer();
     private final PointCloudRenderer pointCloudRenderer = new PointCloudRenderer();
+
+    private final FirebaseFirestore db = FirebaseFirestore.getInstance();
 
     private boolean installRequested;
 
@@ -122,12 +132,13 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
     private MotionEvent queuedSingleTap;
 
     private Session session;
+    private State state = State.UNINITIALIZED;
+    private boolean qualityObtained = false;
 
     @GuardedBy("anchorLock")
     private Anchor anchor;
 
     private CloudAnchorManager cloudAnchorManager;
-    private HostResolveMode currentMode;
 
     private static int getNumStoredAnchors(@NonNull SharedPreferences anchorPreferences) {
         String hostedAnchorIds = anchorPreferences.getString(CloudAnchorActivity.HOSTED_ANCHOR_IDS, "");
@@ -155,63 +166,41 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
         debugText = findViewById(R.id.debug_message);
         userMessageText = findViewById(R.id.user_message);
 
-        // Initialize Cloud Anchor variables.
-        if (this.getIntent().getBooleanExtra(EXTRA_HOSTING_MODE, false)) {
-            currentMode = HostResolveMode.HOSTING;
-        } else {
-            currentMode = HostResolveMode.RESOLVING;
-        }
         showPrivacyDialog();
     }
 
     private void setUpTapListener() {
-        gestureDetector =
-                new GestureDetector(
-                        this,
-                        new GestureDetector.SimpleOnGestureListener() {
-                            @Override
-                            public boolean onSingleTapUp(MotionEvent e) {
-                                synchronized (singleTapLock) {
-                                    if (currentMode == HostResolveMode.HOSTING) {
-                                        queuedSingleTap = e;
-                                    }
-                                }
-                                return true;
-                            }
+        gestureDetector = new GestureDetector(this,
+                new GestureDetector.SimpleOnGestureListener() {
+                    @Override
+                    public boolean onSingleTapUp(MotionEvent e) {
+                        synchronized (singleTapLock) {
+                            queuedSingleTap = e;
+                        }
+                        return true;
+                    }
 
-                            @Override
-                            public boolean onDown(MotionEvent e) {
-                                return true;
-                            }
-                        });
+                    @Override
+                    public boolean onDown(MotionEvent e) {
+                        return true;
+                    }
+                });
         surfaceView.setOnTouchListener((v, event) -> gestureDetector.onTouchEvent(event));
     }
 
     private void showPrivacyDialog() {
         sharedPreferences = getSharedPreferences(PREFERENCE_FILE_KEY, Context.MODE_PRIVATE);
 
-        if (currentMode == HostResolveMode.HOSTING) {
-            if (!sharedPreferences.getBoolean(ALLOW_SHARE_IMAGES_KEY, false)) {
-                showNoticeDialog(this::onPrivacyAcceptedForHost);
-            } else {
-                onPrivacyAcceptedForHost();
-            }
+        if (!sharedPreferences.getBoolean(ALLOW_SHARE_IMAGES_KEY, false)) {
+            showNoticeDialog(this::onPrivacyAcceptedForHost);
         } else {
-            if (!sharedPreferences.getBoolean(ALLOW_SHARE_IMAGES_KEY, false)) {
-                showNoticeDialog(this::onPrivacyAcceptedForResolve);
-            } else {
-                onPrivacyAcceptedForResolve();
-            }
+            onPrivacyAcceptedForHost();
         }
     }
 
     @Override
     protected void onDestroy() {
         if (session != null) {
-            // Explicitly close ARCore Session to release native resources.
-            // Review the API reference for important considerations before calling close() in apps with
-            // more complicated lifecycle requirements:
-            // https://developers.google.com/ar/reference/java/arcore/reference/com/google/ar/core/Session#close()
             session.close();
             session = null;
         }
@@ -247,6 +236,12 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
                     CameraPermissionHelper.requestCameraPermission(this);
                     return;
                 }
+
+                if (LocationPermissionHelper.noFineLocationPermission(this)) {
+                    LocationPermissionHelper.requestFineLocationPermission(this);
+                    return;
+                }
+
                 session = new Session(this);
                 cloudAnchorManager = new CloudAnchorManager(session);
             } catch (UnavailableArcoreNotInstalledException e) {
@@ -273,7 +268,10 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
             // Create default config and check if supported.
             Config config = new Config(session);
             config.setCloudAnchorMode(CloudAnchorMode.ENABLED);
+            config.setGeospatialMode(Config.GeospatialMode.ENABLED);
             session.configure(config);
+
+            state = State.PRETRACKING;
         }
 
         // Note that order matters - see the note in onPause(), the reverse applies here.
@@ -313,6 +311,21 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
             }
             finish();
         }
+
+        if (LocationPermissionHelper.hasFineLocationPermissionsResponseInResult(permissions)
+                && LocationPermissionHelper.noFineLocationPermission(this)) {
+            // Use toast instead of snackbar here since the activity will exit.
+            Toast.makeText(
+                            this,
+                            "Precise location permission is needed to run this application",
+                            Toast.LENGTH_LONG)
+                    .show();
+            if (!LocationPermissionHelper.shouldShowRequestPermissionRationale(this)) {
+                // Permission denied with checking "Do not ask again".
+                LocationPermissionHelper.launchPermissionSettings(this);
+            }
+            finish();
+        }
     }
 
     @Override
@@ -336,12 +349,9 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
             synchronized (anchorLock) {
                 // Only handle a tap if the anchor is currently null, the queued tap is non-null and the
                 // camera is currently tracking.
-                if (anchor == null
-                        && queuedSingleTap != null
+                if (anchor == null && queuedSingleTap != null
                         && cameraTrackingState == TrackingState.TRACKING) {
-                    Preconditions.checkState(
-                            currentMode == HostResolveMode.HOSTING,
-                            "We should only be creating an anchor in hosting mode.");
+
                     for (HitResult hit : frame.hitTest(queuedSingleTap)) {
                         if (shouldCreateAnchorWithHit(hit)) {
                             debugText.setText(
@@ -371,7 +381,7 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
     /**
      * Returns {@code true} if and only if the hit can be used to create an Anchor reliably.
      */
-    private static boolean shouldCreateAnchorWithHit(HitResult hit) {
+    private static boolean shouldCreateAnchorWithHit(@NonNull HitResult hit) {
         Trackable trackable = hit.getTrackable();
         if (trackable instanceof Plane) {
             // Check if the hit was within the plane's polygon.
@@ -485,10 +495,15 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
                 }
             }
 
+            Earth earth = session.getEarth();
+            if (earth != null) {
+                updateGeospatialState(earth);
+            }
+
             // Render the Feature Map Quality Indicator UI.
             // Adaptive UI is drawn here, using the values from the mapping quality API.
             if (shouldDrawFeatureMapQualityUi) {
-                updateFeatureMapQualityUi(camera, colorCorrectionRgba);
+                updateFeatureMapQualityUi(camera, colorCorrectionRgba, earth);
             }
 
         } catch (Throwable t) {
@@ -497,46 +512,112 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
         }
     }
 
-    private void updateFeatureMapQualityUi(Camera camera, float[] colorCorrectionRgba) {
+    private void updatePretrackingState(@NonNull Earth earth) {
+        if (earth.getTrackingState() == TrackingState.TRACKING) {
+            state = State.LOCALIZING;
+            return;
+        }
+
+        if (earth.getEarthState() != Earth.EarthState.ENABLED) {
+            state = State.EARTH_STATE_ERROR;
+            return;
+        }
+
+        runOnUiThread(() -> userMessageText.setText(R.string.geospatial_pose_not_tracking));
+    }
+
+    private void updateLocalizingState(@NonNull Earth earth) {
+        GeospatialPose geospatialPose = earth.getCameraGeospatialPose();
+
+        if (geospatialPose.getHorizontalAccuracy() <= LOCALIZING_HORIZONTAL_ACCURACY_THRESHOLD_METERS
+                && geospatialPose.getHeadingAccuracy() <= LOCALIZING_HEADING_ACCURACY_THRESHOLD_DEGREES) {
+            state = State.LOCALIZED;
+
+            runOnUiThread(() -> userMessageText.setText(R.string.hosting_place_anchor));
+            return;
+        }
+
+        updateGeospatialPoseText(geospatialPose);
+    }
+
+    private void updateGeospatialState(Earth earth) {
+        if (state == State.PRETRACKING) {
+            updatePretrackingState(earth);
+        } else if (state == State.LOCALIZING) {
+            updateLocalizingState(earth);
+        } else if (state == State.LOCALIZED) {
+            updateLocalizedState(earth);
+        }
+    }
+
+    private void updateGeospatialPoseText(@NonNull GeospatialPose geospatialPose) {
+        String poseText = getResources().getString(
+                R.string.geospatial_pose,
+                geospatialPose.getLatitude(),
+                geospatialPose.getLongitude(),
+                geospatialPose.getHorizontalAccuracy(),
+                geospatialPose.getAltitude(),
+                geospatialPose.getVerticalAccuracy(),
+                geospatialPose.getHeading(),
+                geospatialPose.getHeadingAccuracy());
+
+        runOnUiThread(() -> debugText.setText(poseText));
+    }
+
+    private void updateLocalizedState(@NonNull Earth earth) {
+        GeospatialPose geospatialPose = earth.getCameraGeospatialPose();
+        // Check if either accuracy has degraded to the point we should enter back into the LOCALIZING
+        // state.
+        if (geospatialPose.getHorizontalAccuracy()
+                > LOCALIZING_HORIZONTAL_ACCURACY_THRESHOLD_METERS
+                + LOCALIZED_HORIZONTAL_ACCURACY_HYSTERESIS_METERS
+                || geospatialPose.getHeadingAccuracy()
+                > LOCALIZING_HEADING_ACCURACY_THRESHOLD_DEGREES
+                + LOCALIZED_HEADING_ACCURACY_HYSTERESIS_DEGREES) {
+            // Accuracies have degenerated, return to the localizing state.
+            state = State.LOCALIZING;
+
+            runOnUiThread(() -> runOnUiThread(() -> userMessageText.setText(R.string.geospatial_pose_not_tracking)));
+        }
+    }
+
+    private void updateFeatureMapQualityUi(@NonNull Camera camera, float[] colorCorrectionRgba, Earth earth) {
         Pose featureMapQualityUiPose = anchorPose.compose(featureMapQualityUi.getUiTransform());
         float[] cameraUiFrame =
                 featureMapQualityUiPose.inverse().compose(camera.getPose()).getTranslation();
         double distance = Math.hypot(/*dx=*/ cameraUiFrame[0], /*dz=*/ cameraUiFrame[2]);
-        runOnUiThread(
-                () -> {
-                    if (distance < MIN_DISTANCE) {
-                        userMessageText.setText(R.string.too_close);
-                    } else if (distance > MAX_DISTANCE) {
-                        userMessageText.setText(R.string.too_far);
-                    } else {
-                        userMessageText.setText(R.string.hosting_save);
-                    }
-                });
+
+        if (!qualityObtained)
+            runOnUiThread(
+                    () -> {
+                        if (distance < MIN_DISTANCE) {
+                            userMessageText.setText(R.string.too_close);
+                        } else if (distance > MAX_DISTANCE) {
+                            userMessageText.setText(R.string.too_far);
+                        } else {
+                            userMessageText.setText(R.string.hosting_save);
+                        }
+                    });
 
         long now = SystemClock.uptimeMillis();
-        // Call estimateFeatureMapQualityForHosting() every 500ms.
         if (now - lastEstimateTimestampMillis > 500
-                // featureMapQualityUi.updateQualityForViewpoint() calculates the angle (and intersected
-                // quality bar) using the vector going from the phone to the anchor. If the person is
-                // looking away from the anchor and we would incorrectly update the intersected angle with
-                // the FeatureMapQuality from their current view. So we check isAnchorInView() here.
                 && FeatureMapQualityUi.isAnchorInView(anchorTranslation, viewMatrix, projectionMatrix)) {
             lastEstimateTimestampMillis = now;
-            // Update the FeatureMapQuality for the current camera viewpoint. Can pass in ANY valid camera
-            // pose to estimateFeatureMapQualityForHosting(). Ideally, the pose should represent users’
-            // expected perspectives.
             FeatureMapQuality currentQuality =
                     session.estimateFeatureMapQualityForHosting(camera.getPose());
             featureMapQualityUi.updateQualityForViewpoint(cameraUiFrame, currentQuality);
             float averageQuality = featureMapQualityUi.computeOverallQuality();
             Log.i(TAG, "History of average mapping quality calls: " + averageQuality);
 
-            if (averageQuality >= QUALITY_THRESHOLD) {
+            qualityObtained = averageQuality >= QUALITY_THRESHOLD;
+
+            if (qualityObtained && state == State.LOCALIZED) {
+
                 // Host the anchor automatically if the FeatureMapQuality threshold is reached.
                 Log.i(TAG, "FeatureMapQuality has reached SUFFICIENT-GOOD, triggering hostCloudAnchor()");
                 synchronized (anchorLock) {
                     hostedAnchor = true;
-                    cloudAnchorManager.hostCloudAnchor(anchor, new HostListener());
+                    cloudAnchorManager.hostCloudAnchor(anchor, new HostListener(earth.getCameraGeospatialPose()));
                 }
                 runOnUiThread(
                         () -> {
@@ -575,20 +656,16 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
             throw new AssertionError("Could not save the user preference to SharedPreferences!");
         }
         createSession();
-        debugText.setText(R.string.debug_hosting_place_anchor);
-        userMessageText.setText(R.string.hosting_place_anchor);
-    }
-
-    private void onPrivacyAcceptedForResolve() {
-        if (!sharedPreferences.edit().putBoolean(ALLOW_SHARE_IMAGES_KEY, true).commit()) {
-            throw new AssertionError("Could not save the user preference to SharedPreferences!");
-        }
-        createSession();
     }
 
     /* Listens for a hosted anchor. */
     private final class HostListener implements CloudAnchorManager.CloudAnchorListener {
         private String cloudAnchorId;
+        private final GeospatialPose geospatialPose;
+
+        public HostListener(GeospatialPose geospatialPose) {
+            this.geospatialPose = geospatialPose;
+        }
 
         @Override
         public void onComplete(Anchor anchor) {
@@ -616,7 +693,19 @@ public class CloudAnchorActivity extends AppCompatActivity implements GLSurfaceV
          */
         private void onAnchorNameEntered(String anchorNickname) {
             userMessageText.setVisibility(View.GONE);
-            debugText.setText(getString(R.string.debug_hosting_success, cloudAnchorId));
+
+            Map<String, Object> point = new HashMap<>();
+
+            point.put("anchorId", cloudAnchorId);
+            point.put("altitude", geospatialPose.getAltitude());
+            point.put("latitude", geospatialPose.getLatitude());
+            point.put("longitude", geospatialPose.getLongitude());
+            point.put("heading", geospatialPose.getHeading());
+            point.put("name", anchorNickname);
+
+            db.collection("maps/fisat/poi").add(point)
+                    .addOnSuccessListener((d) -> debugText.setText(getString(R.string.debug_hosting_success, anchorNickname)))
+                    .addOnFailureListener((e) -> debugText.setText(e.getLocalizedMessage()));
         }
 
         private void saveAnchorWithNickname() {
